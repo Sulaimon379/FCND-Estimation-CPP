@@ -93,9 +93,19 @@ void QuadEstimatorEKF::UpdateFromIMU(V3F accel, V3F gyro)
   // (replace the code below)
   // make sure you comment it out when you add your own code -- otherwise e.g. you might integrate yaw twice
 
-  float predictedPitch = pitchEst + dtIMU * gyro.y;
+  /* float predictedPitch = pitchEst + dtIMU * gyro.y;
   float predictedRoll = rollEst + dtIMU * gyro.x;
-  ekfState(6) = ekfState(6) + dtIMU * gyro.z;	// yaw
+  ekfState(6) = ekfState(6) + dtIMU * gyro.z;	// yaw */
+  
+  Quaternion<float> qt = Quaternion<float>::FromEuler123_RPY(rollEst, pitchEst, ekfState(6));
+    
+  qt.IntegrateBodyRate(gyro,dtIMU);
+    
+  V3D eulerRPY = qt.ToEulerRPY();
+
+  float predictedPitch = eulerRPY.y;
+  float predictedRoll  = eulerRPY.x;
+  ekfState(6) = eulerRPY.z;
 
   // normalize yaw to -pi .. pi
   if (ekfState(6) > F_PI) ekfState(6) -= 2.f*F_PI;
@@ -162,6 +172,15 @@ VectorXf QuadEstimatorEKF::PredictState(VectorXf curState, float dt, V3F accel, 
 
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
 
+  predictedState(0) = curState(0) + curState(3) * dt; 
+  predictedState(1) = curState(1) + curState(4) * dt; 
+  predictedState(2) = curState(2) + curState(5) * dt; 
+  
+  V3F accel_I = attitude.Rotate_BtoI(accel);
+  
+  predictedState(3) = curState(3) + accel_I.x * dt; 
+  predictedState(4) = curState(4) + accel_I.y * dt; 
+  predictedState(5) = curState(5) + accel_I.z * dt; 
 
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
@@ -188,7 +207,24 @@ MatrixXf QuadEstimatorEKF::GetRbgPrime(float roll, float pitch, float yaw)
   //   that your calculations are reasonable
 
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
-
+	float cPhi = cosf(roll);
+    float sPhi = sinf(roll);
+    
+    float cThe = cosf(pitch);
+    float sThe = sinf(pitch);
+    
+    float cPsi = cosf(yaw);
+    float sPsi = sinf(yaw);
+    
+    
+    
+    RbgPrime(0,0) = -cThe * sPsi; 
+    RbgPrime(0,1) = -sPhi * sThe * sPsi - cPhi * cPsi; 
+    RbgPrime(0,2) = -cPhi * sThe * sPsi + sPhi * cPsi; 
+    
+    RbgPrime(1,0) = cThe * cPsi; 
+    RbgPrime(1,1) = sPhi * sThe * cPsi - cPhi * sPsi; 
+    RbgPrime(1,2) = cPhi * sThe * cPsi + sPhi * sPsi; 
 
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
@@ -234,7 +270,15 @@ void QuadEstimatorEKF::Predict(float dt, V3F accel, V3F gyro)
   gPrime.setIdentity();
 
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
-
+  gPrime(0, 3) = dt;
+  gPrime(1, 4) = dt;
+  gPrime(2, 5) = dt;
+  
+  gPrime(3, 6) = (RbgPrime(0) * accel).sum()*dt;
+  gPrime(4, 6) = (RbgPrime(0) * accel).sum()*dt;
+  gPrime(5, 6) = (RbgPrime(0) * accel).sum()*dt;
+  
+  ekfCov = gPrime * ekfCov * gPrime.transpose() + Q;
 
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
@@ -259,7 +303,19 @@ void QuadEstimatorEKF::UpdateFromGPS(V3F pos, V3F vel)
   //  - The GPS measurement covariance is available in member variable R_GPS
   //  - this is a very simple update
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
-
+  hPrime(0, 0) = 1;
+  hPrime(1, 1) = 1;
+  hPrime(2, 2) = 1;
+  hPrime(3, 3) = 1;
+  hPrime(4, 4) = 1;
+  hPrime(5, 5) = 1;
+  
+  zFromX(0) = ekfState(0);
+  zFromX(1) = ekfState(1);
+  zFromX(2) = ekfState(2);
+  zFromX(3) = ekfState(3);
+  zFromX(4) = ekfState(4);
+  zFromX(5) = ekfState(5);
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
   Update(z, hPrime, R_GPS, zFromX);
@@ -280,6 +336,17 @@ void QuadEstimatorEKF::UpdateFromMag(float magYaw)
   //    (you don't want to update your yaw the long way around the circle)
   //  - The magnetomer measurement covariance is available in member variable R_Mag
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
+  hPrime(6) = 1;
+  zFromX(0) = ekfState(6);
+  float delta = magYaw - ekfState(6);
+  if (delta > F_PI) 
+  {
+	  zFromX(0) += 2.f*F_PI;
+  }
+  else if (delta < -F_PI) 
+  {
+	  zFromX(0) -= 2.f*F_PI;
+  }
 
 
   /////////////////////////////// END STUDENT CODE ////////////////////////////
